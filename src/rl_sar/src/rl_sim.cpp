@@ -8,6 +8,12 @@
 // #define PLOT
 // #define CSV_LOGGER
 
+bool if_gpu = false;
+float sum_time = 0;
+int count = 0;
+float sum_forward_time = 0;
+int count_forward = 0;
+
 RL_Sim::RL_Sim()
 {
     ros::NodeHandle nh;
@@ -37,9 +43,18 @@ RL_Sim::RL_Sim()
     this->InitControl();
     running_state = STATE_RL_RUNNING;
 
+    this->device_type = at::kCPU; // 定义设备类型
+    if (torch::cuda::is_available() && if_gpu)
+    {
+        this->device_type = at::kCUDA;
+        std::cout << "CUDA is available! Running on the GPU!" << std::endl;
+    }
+    std::cout << "if CUDA available: " << torch::cuda::is_available() << std::endl;
+
     // model
     std::string model_path = std::string(CMAKE_CURRENT_SOURCE_DIR) + "/models/" + this->robot_name + "/" + this->params.model_name;
     this->model = torch::jit::load(model_path);
+    this->model.to(this->device_type);
 
     // publisher
     nh.param<std::string>("ros_namespace", this->ros_namespace, "");
@@ -260,6 +275,8 @@ void RL_Sim::RunModel()
 {
     if (this->running_state == STATE_RL_RUNNING && simulation_running)
     {
+        auto start_time = std::chrono::high_resolution_clock::now();
+
         this->obs.lin_vel = torch::tensor({{this->vel.linear.x, this->vel.linear.y, this->vel.linear.z}});
         this->obs.ang_vel = torch::tensor(this->robot_state.imu.gyroscope).unsqueeze(0);
         // this->obs.commands = torch::tensor({{this->cmd_vel.linear.x, this->cmd_vel.linear.y, this->cmd_vel.angular.z}});
@@ -268,7 +285,7 @@ void RL_Sim::RunModel()
         this->obs.dof_pos = torch::tensor(this->robot_state.motor_state.q).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
         this->obs.dof_vel = torch::tensor(this->robot_state.motor_state.dq).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
 
-        torch::Tensor clamped_actions = this->Forward();
+        torch::Tensor clamped_actions = this->Forward().to(at::kCPU);
 
         this->obs.actions = clamped_actions;
 
@@ -302,6 +319,17 @@ void RL_Sim::RunModel()
         }
         this->CSVLogger(this->output_dof_tau, tau_est, this->obs.dof_pos, this->output_dof_pos, this->obs.dof_vel);
 #endif
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+        sum_time += duration;
+        count += 1;
+        if (count >= 100)
+        {
+            std::cout << "[RunModel] Execution time: " << 0.01 * 1e-3 * sum_time << " ms" << std::endl;
+            count = 0;
+            sum_time = 0;
+        }
     }
 }
 
@@ -309,23 +337,39 @@ torch::Tensor RL_Sim::Forward()
 {
     torch::autograd::GradMode::set_enabled(false);
 
-    torch::Tensor clamped_obs = this->ComputeObservation();
+    torch::Tensor clamped_obs = this->ComputeObservation().to(this->device_type);
+    // std::cout << "clamped_obs Tensor device: " << clamped_obs.device() << std::endl;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
 
     torch::Tensor actions;
     if (this->params.observations_history.size() != 0)
     {
         this->history_obs_buf.insert(clamped_obs);
-        this->history_obs = this->history_obs_buf.get_obs_vec(this->params.observations_history);
+        this->history_obs = this->history_obs_buf.get_obs_vec(this->params.observations_history).to(this->device_type);
+        // std::cout << "history_obs Tensor device: " << history_obs.device() << std::endl;
         actions = this->model.forward({this->history_obs}).toTensor();
+        // std::cout << "actions Tensor device: " << actions.device() << std::endl;
     }
     else
     {
         actions = this->model.forward({clamped_obs}).toTensor();
     }
 
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+    sum_forward_time += duration;
+    count_forward += 1;
+    if (count_forward >= 100)
+    {
+        std::cout << "[RunModel] model forward time: " << 0.01 * 1e-3 * sum_forward_time << " ms" << std::endl;
+        count_forward = 0;
+        sum_forward_time = 0;
+    }
+
     if (this->params.clip_actions_upper.numel() != 0 && this->params.clip_actions_lower.numel() != 0)
     {
-        return torch::clamp(actions, this->params.clip_actions_lower, this->params.clip_actions_upper);
+        return torch::clamp(actions, this->params.clip_actions_lower.to(this->device_type), this->params.clip_actions_upper.to(this->device_type));
     }
     else
     {

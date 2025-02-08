@@ -173,6 +173,7 @@ public:
     void AttitudeProtect(const std::vector<double> &quaternion, float pitch_threshold, float roll_threshold);
 
 protected:
+    torch::DeviceType device_type;
     // rl module
     torch::jit::script::Module model;
     // output buffer
