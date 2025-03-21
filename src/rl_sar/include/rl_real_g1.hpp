@@ -32,7 +32,7 @@ using namespace unitree::robot;
 using namespace unitree::robot::go2;
 #define TOPIC_LOWCMD "rt/lowcmd"
 #define TOPIC_LOWSTATE "rt/lowstate"
-#define TOPIC_IMU_TORSO "rt/secondary_imu";
+#define TOPIC_IMU_TORSO "rt/secondary_imu"
 // #define TOPIC_JOYSTICK "rt/wirelesscontroller"
 #define TOPIC_LEFT_DEX3_CMD "rt/dex3/left/cmd"
 #define TOPIC_LEFT_DEX3_STATE "rt/dex3/left/state"
@@ -74,12 +74,12 @@ private:
     void Plot();
 
     // unitree interface
-    void InitRobotStateClient();
+    void InitMotionSwitcherClient();
     void InitLowCmd();
     uint32_t Crc32Core(uint32_t *ptr, uint32_t len);
     void LowStateMessageHandler(const void *messages);
     void ImuTorsoHandler(const void *message);
-    MotionSwitcherClient msc;
+    unitree::robot::b2::MotionSwitcherClient msc;
     unitree_hg::msg::dds_::LowCmd_ unitree_low_command{};
     unitree_hg::msg::dds_::LowState_ unitree_low_state{};
     unitree_hg::msg::dds_::IMUState_ unitree_imu_state{};

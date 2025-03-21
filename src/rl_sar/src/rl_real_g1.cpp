@@ -23,7 +23,7 @@ RL_Real::RL_Real()
     }
 
     // init robot
-    this->InitRobotStateClient();
+    this->InitMotionSwitcherClient();
     std::string form, name;
     while (this->msc.CheckMode(form, name), !name.empty()) {
       if (this->msc.ReleaseMode())
@@ -163,7 +163,7 @@ void RL_Real::RunModel()
     {
         // TODO: 修改command obs输入
         this->obs.ang_vel = torch::tensor(this->robot_state.imu.gyroscope).unsqueeze(0);
-        this->obs.commands = torch::tensor({{this->unitree_gamepad.ly(), -this->unitree_gamepad.lx(), -this->unitree_gamepad.rx()}});
+        this->obs.commands = torch::tensor({{this->unitree_gamepad.ly, -this->unitree_gamepad.lx, -this->unitree_gamepad.rx}});
         // this->obs.commands = torch::tensor({{this->control.x, this->control.y, this->control.yaw}});
         this->obs.base_quat = torch::tensor(this->robot_state.imu.quaternion).unsqueeze(0);
         this->obs.dof_pos = torch::tensor(this->robot_state.motor_state.q).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
@@ -288,20 +288,20 @@ uint32_t RL_Real::Crc32Core(uint32_t *ptr, uint32_t len)
 
 void RL_Real::InitLowCmd()
 {
-    this->unitree_low_command.head()[0] = 0xFE;
-    this->unitree_low_command.head()[1] = 0xEF;
-    this->unitree_low_command.level_flag() = 0xFF;
-    this->unitree_low_command.gpio() = 0;
+    // this->unitree_low_command.head()[0] = 0xFE;
+    // this->unitree_low_command.head()[1] = 0xEF;
+    // this->unitree_low_command.level_flag() = 0xFF;
+    // this->unitree_low_command.gpio() = 0;
 
-    for (int i = 0; i < 20; ++i)
-    {
-        this->unitree_low_command.motor_cmd()[i].mode() = (0x01); // motor switch to servo (PMSM) mode
-        this->unitree_low_command.motor_cmd()[i].q() = (PosStopF);
-        this->unitree_low_command.motor_cmd()[i].kp() = (0);
-        this->unitree_low_command.motor_cmd()[i].dq() = (VelStopF);
-        this->unitree_low_command.motor_cmd()[i].kd() = (0);
-        this->unitree_low_command.motor_cmd()[i].tau() = (0);
-    }
+    // for (int i = 0; i < 20; ++i)
+    // {
+    //     this->unitree_low_command.motor_cmd()[i].mode() = (0x01); // motor switch to servo (PMSM) mode
+    //     this->unitree_low_command.motor_cmd()[i].q() = (PosStopF);
+    //     this->unitree_low_command.motor_cmd()[i].kp() = (0);
+    //     this->unitree_low_command.motor_cmd()[i].dq() = (VelStopF);
+    //     this->unitree_low_command.motor_cmd()[i].kd() = (0);
+    //     this->unitree_low_command.motor_cmd()[i].tau() = (0);
+    // }
 }
 
 void RL_Real::InitMotionSwitcherClient()
@@ -314,7 +314,7 @@ void RL_Real::LowStateMessageHandler(const void *message)
 {
     this->unitree_low_state = *(unitree_hg::msg::dds_::LowState_ *)message;
     memcpy(this->unitree_rx.buff, &this->unitree_low_state.wireless_remote()[0], 40);
-    this->unitree_gamepad.update(this->unitree_rx.RF_RX)
+    this->unitree_gamepad.update(this->unitree_rx.RF_RX);
 }
 
 void RL_Real::ImuTorsoHandler(const void *message)
