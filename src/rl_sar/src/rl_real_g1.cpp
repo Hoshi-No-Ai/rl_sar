@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "rl_real_go2.hpp"
+#include "rl_real_g1.hpp"
 
 // #define PLOT
 // #define CSV_LOGGER
@@ -11,11 +11,11 @@
 RL_Real::RL_Real()
 {
     // read params from yaml
-    this->robot_name = "go2_isaacgym";
+    this->robot_name = "g1_isaacgym";
     this->ReadYaml(this->robot_name);
     for (std::string &observation : this->params.observations)
     {
-        // In Unitree Go2, the coordinate system for angular velocity is in the body coordinate system.
+        // In Unitree G1, the coordinate system for angular velocity is in the body coordinate system.
         if (observation == "ang_vel")
         {
             observation = "ang_vel_body";
@@ -23,26 +23,23 @@ RL_Real::RL_Real()
     }
 
     // init robot
-    // 关闭原来的机器人服务
     this->InitRobotStateClient();
-    while (this->QueryServiceStatus("sport_mode"))
-    {
-        std::cout << "Try to deactivate the service: " << "sport_mode" << std::endl;
-        this->rsc.ServiceSwitch("sport_mode", 0);
-        sleep(1);
+    std::string form, name;
+    while (this->msc.CheckMode(form, name), !name.empty()) {
+      if (this->msc.ReleaseMode())
+        std::cout << "Failed to switch to Release Mode\n";
+      sleep(5);
     }
-    // 初始化指令
-    this->InitLowCmd();
-    // 发布和订阅
+    // this->InitLowCmd();
     // create publisher
-    this->lowcmd_publisher.reset(new ChannelPublisher<unitree_go::msg::dds_::LowCmd_>(TOPIC_LOWCMD));
+    this->lowcmd_publisher.reset(new ChannelPublisher<unitree_hg::msg::dds_::LowCmd_>(TOPIC_LOWCMD));
     this->lowcmd_publisher->InitChannel();
     // create subscriber
-    this->lowstate_subscriber.reset(new ChannelSubscriber<unitree_go::msg::dds_::LowState_>(TOPIC_LOWSTATE));
+    this->lowstate_subscriber.reset(new ChannelSubscriber<unitree_hg::msg::dds_::LowState_>(TOPIC_LOWSTATE));
     this->lowstate_subscriber->InitChannel(std::bind(&RL_Real::LowStateMessageHandler, this, std::placeholders::_1), 1);
 
-    this->joystick_subscriber.reset(new ChannelSubscriber<unitree_go::msg::dds_::WirelessController_>(TOPIC_JOYSTICK));
-    this->joystick_subscriber->InitChannel(std::bind(&RL_Real::JoystickHandler, this, std::placeholders::_1), 1);
+    this->imu_subscriber.reset(new ChannelSubscriber<unitree_hg::msg::dds_::IMUState_>(TOPIC_IMU_TORSO));
+    this->imu_subscriber->InitChannel(std::bind(&RL_Real::ImuTorsoHandler, this, std::placeholders::_1), 1);
 
     // init rl
     torch::autograd::GradMode::set_enabled(false);
@@ -57,16 +54,14 @@ RL_Real::RL_Real()
     running_state = STATE_WAITING;
 
     // model
-    // 加载模型
     std::string model_path = std::string(CMAKE_CURRENT_SOURCE_DIR) + "/models/" + this->robot_name + "/" + this->params.model_name;
     this->model = torch::jit::load(model_path);
 
     // loop
-    // 开启线程任务
-    this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
+    // this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.dt, std::bind(&RL_Real::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.dt * this->params.decimation, std::bind(&RL_Real::RunModel, this));
-    this->loop_keyboard->start();
+    // this->loop_keyboard->start();
     this->loop_control->start();
     this->loop_rl->start();
 
@@ -86,7 +81,7 @@ RL_Real::RL_Real()
 
 RL_Real::~RL_Real()
 {
-    this->loop_keyboard->shutdown();
+    // this->loop_keyboard->shutdown();
     this->loop_control->shutdown();
     this->loop_rl->shutdown();
 #ifdef PLOT
@@ -97,15 +92,15 @@ RL_Real::~RL_Real()
 
 void RL_Real::GetState(RobotState<double> *state)
 {
-    if ((int)this->unitree_joy.components.R2 == 1)
+    if ((int)this->unitree_gamepad.R2.pressed == 1)
     {
         this->control.control_state = STATE_POS_GETUP;
     }
-    else if ((int)this->unitree_joy.components.R1 == 1)
+    else if ((int)this->unitree_gamepad.R1.pressed == 1)
     {
         this->control.control_state = STATE_RL_INIT;
     }
-    else if ((int)this->unitree_joy.components.L2 == 1)
+    else if ((int)this->unitree_gamepad.L2.pressed == 1)
     {
         this->control.control_state = STATE_POS_GETDOWN;
     }
@@ -149,7 +144,7 @@ void RL_Real::SetCommand(const RobotCommand<double> *command)
         this->unitree_low_command.motor_cmd()[i].tau() = command->motor_command.tau[command_mapping[i]];
     }
 
-    this->unitree_low_command.crc() = Crc32Core((uint32_t *)&unitree_low_command, (sizeof(unitree_go::msg::dds_::LowCmd_) >> 2) - 1);
+    this->unitree_low_command.crc() = Crc32Core((uint32_t *)&unitree_low_command, (sizeof(unitree_hg::msg::dds_::LowCmd_) >> 2) - 1);
     lowcmd_publisher->Write(unitree_low_command);
 }
 
@@ -166,8 +161,9 @@ void RL_Real::RunModel()
 {
     if (this->running_state == STATE_RL_RUNNING)
     {
+        // TODO: 修改command obs输入
         this->obs.ang_vel = torch::tensor(this->robot_state.imu.gyroscope).unsqueeze(0);
-        this->obs.commands = torch::tensor({{this->joystick.ly(), -this->joystick.rx(), -this->joystick.lx()}});
+        this->obs.commands = torch::tensor({{this->unitree_gamepad.ly(), -this->unitree_gamepad.lx(), -this->unitree_gamepad.rx()}});
         // this->obs.commands = torch::tensor({{this->control.x, this->control.y, this->control.yaw}});
         this->obs.base_quat = torch::tensor(this->robot_state.imu.quaternion).unsqueeze(0);
         this->obs.dof_pos = torch::tensor(this->robot_state.motor_state.q).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
@@ -308,47 +304,22 @@ void RL_Real::InitLowCmd()
     }
 }
 
-void RL_Real::InitRobotStateClient()
+void RL_Real::InitMotionSwitcherClient()
 {
-    this->rsc.SetTimeout(10.0f);
-    this->rsc.Init();
-}
-
-int RL_Real::QueryServiceStatus(const std::string &serviceName)
-{
-    std::vector<ServiceState> serviceStateList;
-    int ret, serviceStatus;
-    ret = this->rsc.ServiceList(serviceStateList);
-    size_t i, count = serviceStateList.size();
-    for (i = 0; i < count; ++i)
-    {
-        const ServiceState &serviceState = serviceStateList[i];
-        if (serviceState.name == serviceName)
-        {
-            if (serviceState.status == 0)
-            {
-                std::cout << "name: " << serviceState.name << " is activate" << std::endl;
-                serviceStatus = 1;
-            }
-            else
-            {
-                std::cout << "name:" << serviceState.name << " is deactivate" << std::endl;
-                serviceStatus = 0;
-            }
-        }
-    }
-    return serviceStatus;
+    this->msc.SetTimeout(10.0f);
+    this->msc.Init();
 }
 
 void RL_Real::LowStateMessageHandler(const void *message)
 {
-    this->unitree_low_state = *(unitree_go::msg::dds_::LowState_ *)message;
+    this->unitree_low_state = *(unitree_hg::msg::dds_::LowState_ *)message;
+    memcpy(this->unitree_rx.buff, &this->unitree_low_state.wireless_remote()[0], 40);
+    this->unitree_gamepad.update(this->unitree_rx.RF_RX)
 }
 
-void RL_Real::JoystickHandler(const void *message)
+void RL_Real::ImuTorsoHandler(const void *message)
 {
-    joystick = *(unitree_go::msg::dds_::WirelessController_ *)message;
-    this->unitree_joy.value = joystick.keys();
+    this->unitree_imu_state = *(unitree_hg::msg::dds_::IMUState_ *)message;
 }
 
 void signalHandler(int signum)
