@@ -73,9 +73,3 @@ target_link_libraries(rl_real_g1
   ${catkin_LIBRARIES} ${UNITREE_G1_LIBS}
   rl_sdk observation_buffer yaml-cpp
 )
-
-catkin_install_python(PROGRAMS
-  scripts/rl_sim.py
-  scripts/actuator_net.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)

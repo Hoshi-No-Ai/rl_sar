@@ -20,12 +20,19 @@ g1_isaacgym:
           100, 100, 100, 150, 40, 40]
   rl_kd: [2, 2, 2, 4, 2, 2, 
           2, 2, 2, 4, 2, 2]
-  fixed_kp: [300, 300, 300,
-             100, 100, 50, 50, 20, 20, 20,
-             100, 100, 50, 50, 20, 20, 20]
-  fixed_kd: [3, 3, 3, 
-             2, 2, 2, 2, 1, 1, 1,
-             2, 2, 2, 2, 1, 1, 1]
+  torque_limits: [88, 139, 88, 139, 50, 50,
+                  88, 139, 88, 139, 50, 50]
+  default_dof_pos: [-0.1,  0.0,  0.0,  0.3, -0.2, 0.0, 
+                    -0.1,  0.0,  0.0,  0.3, -0.2, 0.0]
+  arm_waist_kp: [300, 300, 300,
+                  100, 100, 50, 50, 20, 20, 20,
+                  100, 100, 50, 50, 20, 20, 20]
+  arm_waist_kd: [3, 3, 3, 
+                  2, 2, 2, 2, 1, 1, 1,
+                  2, 2, 2, 2, 1, 1, 1]
+  arm_waist_target: [0, 0, 0,
+                     0, 0.25, 0, 1.2, 0, 0, 0,
+                     0, -0.25, 0, 1.2, 0, 0, 0]
   hip_scale_reduction: 1.0
   hip_scale_reduction_indices: []
   num_of_dofs: 12
@@ -37,10 +44,7 @@ g1_isaacgym:
   dof_pos_scale: 1.0
   dof_vel_scale: 0.05
   commands_scale: [2.0, 2.0, 0.25]
-  torque_limits: [88, 139, 88, 139, 50, 50,
-                  88, 139, 88, 139, 50, 50]
-  default_dof_pos: [-0.1,  0.0,  0.0,  0.3, -0.2, 0.0, 
-                    -0.1,  0.0,  0.0,  0.3, -0.2, 0.0]
+  max_command: [0.6, 0.0, 0.5]
   joint_controller_names: 
   ["left_hip_pitch_controller", "left_hip_roll_controller", "left_hip_yaw_controller", "left_knee_controller", "left_ankle_pitch_controller", "left_ankle_roll_controller",
   "right_hip_pitch_controller", "right_hip_roll_controller", "right_hip_yaw_controller", "right_knee_controller", "right_ankle_pitch_controller", "right_ankle_roll_controller"]

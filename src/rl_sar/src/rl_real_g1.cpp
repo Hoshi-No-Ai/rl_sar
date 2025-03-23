@@ -10,6 +10,8 @@
 
 RL_Real::RL_Real()
 {
+    // TODO: 添加上肢控制
+    // TODO: 修改状态机
     // read params from yaml
     this->robot_name = "g1_isaacgym";
     this->ReadYaml(this->robot_name);
@@ -38,8 +40,8 @@ RL_Real::RL_Real()
     this->lowstate_subscriber.reset(new ChannelSubscriber<unitree_hg::msg::dds_::LowState_>(TOPIC_LOWSTATE));
     this->lowstate_subscriber->InitChannel(std::bind(&RL_Real::LowStateMessageHandler, this, std::placeholders::_1), 1);
 
-    this->imu_subscriber.reset(new ChannelSubscriber<unitree_hg::msg::dds_::IMUState_>(TOPIC_IMU_TORSO));
-    this->imu_subscriber->InitChannel(std::bind(&RL_Real::ImuTorsoHandler, this, std::placeholders::_1), 1);
+    // this->imu_subscriber.reset(new ChannelSubscriber<unitree_hg::msg::dds_::IMUState_>(TOPIC_IMU_TORSO));
+    // this->imu_subscriber->InitChannel(std::bind(&RL_Real::ImuTorsoHandler, this, std::placeholders::_1), 1);
 
     // init rl
     torch::autograd::GradMode::set_enabled(false);
@@ -51,7 +53,7 @@ RL_Real::RL_Real()
     this->InitObservations();
     this->InitOutputs();
     this->InitControl();
-    running_state = STATE_WAITING;
+    running_state = STATE_ZERO_TORQUE;
 
     // model
     std::string model_path = std::string(CMAKE_CURRENT_SOURCE_DIR) + "/models/" + this->robot_name + "/" + this->params.model_name;
@@ -94,7 +96,7 @@ void RL_Real::GetState(RobotState<double> *state)
 {
     if ((int)this->unitree_gamepad.R2.pressed == 1)
     {
-        this->control.control_state = STATE_POS_GETUP;
+        // this->control.control_state = STATE_POS_GETUP;
     }
     else if ((int)this->unitree_gamepad.R1.pressed == 1)
     {
@@ -102,7 +104,7 @@ void RL_Real::GetState(RobotState<double> *state)
     }
     else if ((int)this->unitree_gamepad.L2.pressed == 1)
     {
-        this->control.control_state = STATE_POS_GETDOWN;
+        // this->control.control_state = STATE_POS_GETDOWN;
     }
 
     if (this->params.framework == "isaacgym")
@@ -154,17 +156,17 @@ void RL_Real::RobotControl()
 
     this->GetState(&this->robot_state);
     this->StateController(&this->robot_state, &this->robot_command);
-    this->SetCommand(&this->robot_command);
+    // this->SetCommand(&this->robot_command);
 }
 
 void RL_Real::RunModel()
 {
+    std::cout << "control state: " << this->control.control_state << std::endl;
+    std::cout << "running state: " << this->running_state << std::endl;
     if (this->running_state == STATE_RL_RUNNING)
     {
-        // TODO: 修改command obs输入
         this->obs.ang_vel = torch::tensor(this->robot_state.imu.gyroscope).unsqueeze(0);
         this->obs.commands = torch::tensor({{this->unitree_gamepad.ly, -this->unitree_gamepad.lx, -this->unitree_gamepad.rx}});
-        // this->obs.commands = torch::tensor({{this->control.x, this->control.y, this->control.yaw}});
         this->obs.base_quat = torch::tensor(this->robot_state.imu.quaternion).unsqueeze(0);
         this->obs.dof_pos = torch::tensor(this->robot_state.motor_state.q).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
         this->obs.dof_vel = torch::tensor(this->robot_state.motor_state.dq).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
@@ -315,11 +317,13 @@ void RL_Real::LowStateMessageHandler(const void *message)
     this->unitree_low_state = *(unitree_hg::msg::dds_::LowState_ *)message;
     memcpy(this->unitree_rx.buff, &this->unitree_low_state.wireless_remote()[0], 40);
     this->unitree_gamepad.update(this->unitree_rx.RF_RX);
+    // std::cout << "LowStateMessageHandler" << std::endl;
 }
 
 void RL_Real::ImuTorsoHandler(const void *message)
 {
     this->unitree_imu_state = *(unitree_hg::msg::dds_::IMUState_ *)message;
+    // std::cout << "ImuTorsoHandler" << std::endl;
 }
 
 void signalHandler(int signum)

@@ -58,13 +58,12 @@ struct RobotState
 
 enum STATE
 {
-    STATE_WAITING = 0,
-    STATE_POS_GETUP,
+    STATE_ZERO_TORQUE = 0,
+    STATE_MOVING_DEFAULT_POS,
+    STATE_DEFAULT_POS,
     STATE_RL_INIT,
     STATE_RL_RUNNING,
-    STATE_POS_GETDOWN,
-    STATE_RESET_SIMULATION,
-    STATE_TOGGLE_SIMULATION,
+    STATE_DAMPING,
 };
 
 struct Control
@@ -103,9 +102,11 @@ struct ModelParams
     torch::Tensor torque_limits;
     torch::Tensor rl_kd;
     torch::Tensor rl_kp;
-    torch::Tensor fixed_kp;
-    torch::Tensor fixed_kd;
+    torch::Tensor arm_waist_kp;
+    torch::Tensor arm_waist_kd;
+    torch::Tensor arm_waist_target;
     torch::Tensor commands_scale;
+    torch::Tensor max_command;
     torch::Tensor default_dof_pos;
     std::vector<std::string> joint_controller_names;
 };

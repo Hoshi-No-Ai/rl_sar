@@ -47,7 +47,7 @@ torch::Tensor RL::ComputeObservation()
         }
         else if (observation == "commands")
         {
-            obs_list.push_back(this->obs.commands * this->params.commands_scale);
+            obs_list.push_back(this->obs.commands * this->params.commands_scale * this->params.max_command);
         }
         else if (observation == "dof_pos")
         {
@@ -94,10 +94,10 @@ void RL::InitOutputs()
 
 void RL::InitControl()
 {
-    this->control.control_state = STATE_WAITING;
-    this->control.x = 0.0;
-    this->control.y = 0.0;
-    this->control.yaw = 0.0;
+    this->control.control_state = STATE_ZERO_TORQUE;
+    // this->control.x = 0.0;
+    // this->control.y = 0.0;
+    // this->control.yaw = 0.0;
 }
 
 void RL::ComputeOutput(const torch::Tensor &actions, torch::Tensor &output_dof_pos, torch::Tensor &output_dof_vel, torch::Tensor &output_dof_tau)
@@ -145,63 +145,48 @@ void RL::StateController(const RobotState<double> *state, RobotCommand<double> *
     static float getup_percent = 0.0;
     static float getdown_percent = 0.0;
 
-    // waiting
-    if (this->running_state == STATE_WAITING)
+    // zero torque
+    if (this->running_state == STATE_ZERO_TORQUE)
     {
         for (int i = 0; i < this->params.num_of_dofs; ++i)
         {
-            command->motor_command.q[i] = state->motor_state.q[i];
+            command->motor_command.q[i] = 0;
+            command->motor_command.dq[i] = 0;
+            command->motor_command.kp[i] = 0;
+            command->motor_command.kd[i] = 0;
+            command->motor_command.tau[i] = 0;
         }
-        if (this->control.control_state == STATE_POS_GETUP)
-        {
-            this->control.control_state = STATE_WAITING;
-            getup_percent = 0.0;
-            for (int i = 0; i < this->params.num_of_dofs; ++i)
-            {
-                now_state.motor_state.q[i] = state->motor_state.q[i];
-                start_state.motor_state.q[i] = now_state.motor_state.q[i];
-            }
-            this->running_state = STATE_POS_GETUP;
-            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_POS_GETUP" << std::endl;
-        }
+        // std::cout << std::endl << LOGGER::INFO << "Switching to STATE_ZERO_TORQUE" << std::endl;
     }
-    // stand up (position control)
-    else if (this->running_state == STATE_POS_GETUP)
+    // move to default pos (position control)
+    else if (this->running_state == STATE_MOVING_DEFAULT_POS)
     {
-        if (getup_percent < 1.0)
+
+    }
+    // default pos (position control)
+    else if (this->running_state == STATE_DEFAULT_POS)
+    {
+        for (int i = 0; i < this->params.num_of_dofs; ++i)
         {
-            getup_percent += 1 / 500.0;
-            getup_percent = getup_percent > 1.0 ? 1.0 : getup_percent;
-            for (int i = 0; i < this->params.num_of_dofs; ++i)
-            {
-                command->motor_command.q[i] = (1 - getup_percent) * now_state.motor_state.q[i] + getup_percent * this->params.default_dof_pos[0][i].item<double>();
-                command->motor_command.dq[i] = 0;
-                command->motor_command.kp[i] = this->params.fixed_kp[0][i].item<double>();
-                command->motor_command.kd[i] = this->params.fixed_kd[0][i].item<double>();
-                command->motor_command.tau[i] = 0;
-            }
-            std::cout << "\r" << std::flush << LOGGER::INFO << "Getting up " << std::fixed << std::setprecision(2) << getup_percent * 100.0 << std::flush;
+            command->motor_command.q[i] = this->params.default_dof_pos[i].item<double>();
+            command->motor_command.dq[i] = 0;
+            command->motor_command.kp[i] = this->params.rl_kp[i].item<double>();
+            command->motor_command.kd[i] = this->params.rl_kd[i].item<double>();
+            command->motor_command.tau[i] = 0;
         }
-        else
+        // std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DEFAULT_POS" << std::endl;
+    }
+    else if (this->running_state == STATE_DAMPING)
+    {
+        for (int i = 0; i < this->params.num_of_dofs; ++i)
         {
-            if (this->control.control_state == STATE_RL_INIT)
-            {
-                this->control.control_state = STATE_WAITING;
-                this->running_state = STATE_RL_INIT;
-                std::cout << std::endl << LOGGER::INFO << "Switching to STATE_RL_INIT" << std::endl;
-            }
-            else if (this->control.control_state == STATE_POS_GETDOWN)
-            {
-                this->control.control_state = STATE_WAITING;
-                getdown_percent = 0.0;
-                for (int i = 0; i < this->params.num_of_dofs; ++i)
-                {
-                    now_state.motor_state.q[i] = state->motor_state.q[i];
-                }
-                this->running_state = STATE_POS_GETDOWN;
-                std::cout << std::endl << LOGGER::INFO << "Switching to STATE_POS_GETDOWN" << std::endl;
-            }
+            command->motor_command.q[i] = 0;
+            command->motor_command.dq[i] = 0;
+            command->motor_command.kp[i] = 0;
+            command->motor_command.kd[i] = 8;
+            command->motor_command.tau[i] = 0;
         }
+        // std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DAMPING" << std::endl;
     }
     // init obs and start rl loop
     else if (this->running_state == STATE_RL_INIT)
@@ -218,7 +203,7 @@ void RL::StateController(const RobotState<double> *state, RobotCommand<double> *
     // rl loop
     else if (this->running_state == STATE_RL_RUNNING)
     {
-        std::cout << "\r" << std::flush << LOGGER::INFO << "RL Controller x:" << this->control.x << " y:" << this->control.y << " yaw:" << this->control.yaw << std::flush;
+        // std::cout << "\r" << std::flush << LOGGER::INFO << "RL Controller x:" << this->control.x << " y:" << this->control.y << " yaw:" << this->control.yaw << std::flush;
 
         torch::Tensor _output_dof_pos, _output_dof_vel;
         if (this->output_dof_pos_queue.try_pop(_output_dof_pos) && this->output_dof_vel_queue.try_pop(_output_dof_vel))
@@ -237,54 +222,6 @@ void RL::StateController(const RobotState<double> *state, RobotCommand<double> *
                 command->motor_command.kd[i] = this->params.rl_kd[0][i].item<double>();
                 command->motor_command.tau[i] = 0;
             }
-        }
-        if (this->control.control_state == STATE_POS_GETDOWN)
-        {
-            this->control.control_state = STATE_WAITING;
-            getdown_percent = 0.0;
-            for (int i = 0; i < this->params.num_of_dofs; ++i)
-            {
-                now_state.motor_state.q[i] = state->motor_state.q[i];
-            }
-            this->running_state = STATE_POS_GETDOWN;
-            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_POS_GETDOWN" << std::endl;
-        }
-        else if (this->control.control_state == STATE_POS_GETUP)
-        {
-            this->control.control_state = STATE_WAITING;
-            getup_percent = 0.0;
-            for (int i = 0; i < this->params.num_of_dofs; ++i)
-            {
-                now_state.motor_state.q[i] = state->motor_state.q[i];
-            }
-            this->running_state = STATE_POS_GETUP;
-            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_POS_GETUP" << std::endl;
-        }
-    }
-    // get down (position control)
-    else if (this->running_state == STATE_POS_GETDOWN)
-    {
-        if (getdown_percent < 1.0)
-        {
-            getdown_percent += 1 / 500.0;
-            getdown_percent = getdown_percent > 1.0 ? 1.0 : getdown_percent;
-            for (int i = 0; i < this->params.num_of_dofs; ++i)
-            {
-                command->motor_command.q[i] = (1 - getdown_percent) * now_state.motor_state.q[i] + getdown_percent * start_state.motor_state.q[i];
-                command->motor_command.dq[i] = 0;
-                command->motor_command.kp[i] = this->params.fixed_kp[0][i].item<double>();
-                command->motor_command.kd[i] = this->params.fixed_kd[0][i].item<double>();
-                command->motor_command.tau[i] = 0;
-            }
-            std::cout << "\r" << std::flush << LOGGER::INFO << "Getting down " << std::fixed << std::setprecision(2) << getdown_percent * 100.0 << std::flush;
-        }
-        if (getdown_percent == 1)
-        {
-            this->InitObservations();
-            this->InitOutputs();
-            this->InitControl();
-            this->running_state = STATE_WAITING;
-            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_WAITING" << std::endl;
         }
     }
 }
@@ -398,13 +335,16 @@ void RL::KeyboardInterface()
         switch (c)
         {
         case '0':
-            this->control.control_state = STATE_POS_GETUP;
+            this->control.control_state = STATE_ZERO_TORQUE;
             break;
         case 'p':
             this->control.control_state = STATE_RL_INIT;
             break;
         case '1':
-            this->control.control_state = STATE_POS_GETDOWN;
+            this->control.control_state = STATE_MOVING_DEFAULT_POS;
+            break;
+        case '2':
+            this->control.control_state = STATE_DAMPING;
             break;
         case 'q':
             break;
@@ -434,12 +374,6 @@ void RL::KeyboardInterface()
             this->control.x = 0;
             this->control.y = 0;
             this->control.yaw = 0;
-            break;
-        case 'r':
-            this->control.control_state = STATE_RESET_SIMULATION;
-            break;
-        case '\n':
-            this->control.control_state = STATE_TOGGLE_SIMULATION;
             break;
         default:
             break;
@@ -542,13 +476,12 @@ void RL::ReadYaml(std::string robot_name)
     this->params.dof_pos_scale = config["dof_pos_scale"].as<double>();
     this->params.dof_vel_scale = config["dof_vel_scale"].as<double>();
     this->params.commands_scale = torch::tensor(ReadVectorFromYaml<double>(config["commands_scale"])).view({1, -1});
-    // this->params.commands_scale = torch::tensor({this->params.lin_vel_scale, this->params.lin_vel_scale, this->params.ang_vel_scale});
+    this->params.max_command = torch::tensor(ReadVectorFromYaml<double>(config["max_command"])).view({1, -1});
     this->params.rl_kp = torch::tensor(ReadVectorFromYaml<double>(config["rl_kp"], this->params.framework, rows, cols)).view({1, -1});
     this->params.rl_kd = torch::tensor(ReadVectorFromYaml<double>(config["rl_kd"], this->params.framework, rows, cols)).view({1, -1});
-    // this->params.fixed_kp = torch::tensor(ReadVectorFromYaml<double>(config["fixed_kp"], this->params.framework, rows, cols)).view({1, -1});
-    // this->params.fixed_kd = torch::tensor(ReadVectorFromYaml<double>(config["fixed_kd"], this->params.framework, rows, cols)).view({1, -1});
-    this->params.fixed_kp = torch::tensor(ReadVectorFromYaml<double>(config["fixed_kp"])).view({1, -1});
-    this->params.fixed_kd = torch::tensor(ReadVectorFromYaml<double>(config["fixed_kd"])).view({1, -1});
+    this->params.arm_waist_kp = torch::tensor(ReadVectorFromYaml<double>(config["arm_waist_kp"])).view({1, -1});
+    this->params.arm_waist_kd = torch::tensor(ReadVectorFromYaml<double>(config["arm_waist_kd"])).view({1, -1});
+    this->params.arm_waist_target = torch::tensor(ReadVectorFromYaml<double>(config["arm_waist_target"])).view({1, -1});
     this->params.torque_limits = torch::tensor(ReadVectorFromYaml<double>(config["torque_limits"], this->params.framework, rows, cols)).view({1, -1});
     this->params.default_dof_pos = torch::tensor(ReadVectorFromYaml<double>(config["default_dof_pos"], this->params.framework, rows, cols)).view({1, -1});
     this->params.joint_controller_names = ReadVectorFromYaml<std::string>(config["joint_controller_names"], this->params.framework, rows, cols);
