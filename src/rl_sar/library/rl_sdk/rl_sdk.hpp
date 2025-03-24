@@ -66,9 +66,14 @@ enum STATE
     STATE_DAMPING,
 };
 
+enum class Mode {
+  PR = 0,  // Series Control for Ptich/Roll Joints
+  AB = 1   // Parallel Control for A/B Joints
+};
+
 struct Control
 {
-    STATE control_state;
+    STATE control_state = STATE_ZERO_TORQUE;
     double x = 0.0;
     double y = 0.0;
     double yaw = 0.0;
@@ -92,6 +97,7 @@ struct ModelParams
     double action_scale_wheel;
     std::vector<int> wheel_indices;
     int num_of_dofs;
+    int num_of_arm_waist_dofs;
     double lin_vel_scale;
     double ang_vel_scale;
     double dof_pos_scale;

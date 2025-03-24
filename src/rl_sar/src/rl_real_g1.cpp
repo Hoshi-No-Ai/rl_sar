@@ -10,8 +10,6 @@
 
 RL_Real::RL_Real()
 {
-    // TODO: 添加上肢控制
-    // TODO: 修改状态机
     // read params from yaml
     this->robot_name = "g1_isaacgym";
     this->ReadYaml(this->robot_name);
@@ -32,7 +30,7 @@ RL_Real::RL_Real()
         std::cout << "Failed to switch to Release Mode\n";
       sleep(5);
     }
-    // this->InitLowCmd();
+    this->InitLowCmd();
     // create publisher
     this->lowcmd_publisher.reset(new ChannelPublisher<unitree_hg::msg::dds_::LowCmd_>(TOPIC_LOWCMD));
     this->lowcmd_publisher->InitChannel();
@@ -94,17 +92,21 @@ RL_Real::~RL_Real()
 
 void RL_Real::GetState(RobotState<double> *state)
 {
-    if ((int)this->unitree_gamepad.R2.pressed == 1)
+    if ((int)this->unitree_gamepad.A.pressed == 1)
     {
-        // this->control.control_state = STATE_POS_GETUP;
+        this->control.control_state = STATE_MOVING_DEFAULT_POS;
     }
-    else if ((int)this->unitree_gamepad.R1.pressed == 1)
+    else if ((int)this->unitree_gamepad.B.pressed == 1)
     {
         this->control.control_state = STATE_RL_INIT;
     }
-    else if ((int)this->unitree_gamepad.L2.pressed == 1)
+    else if ((int)this->unitree_gamepad.X.pressed == 1)
     {
-        // this->control.control_state = STATE_POS_GETDOWN;
+        this->control.control_state = STATE_ZERO_TORQUE;
+    }
+    else if ((int)this->unitree_gamepad.select.pressed == 1)
+    {
+        this->control.control_state = STATE_DAMPING;
     }
 
     if (this->params.framework == "isaacgym")
@@ -126,7 +128,7 @@ void RL_Real::GetState(RobotState<double> *state)
     {
         state->imu.gyroscope[i] = this->unitree_low_state.imu_state().gyroscope()[i];
     }
-    for (int i = 0; i < this->params.num_of_dofs; ++i)
+    for (int i = 0; i < this->params.num_of_dofs + this->params.num_of_arm_waist_dofs; ++i)
     {
         state->motor_state.q[i] = this->unitree_low_state.motor_state()[state_mapping[i]].q();
         state->motor_state.dq[i] = this->unitree_low_state.motor_state()[state_mapping[i]].dq();
@@ -136,7 +138,7 @@ void RL_Real::GetState(RobotState<double> *state)
 
 void RL_Real::SetCommand(const RobotCommand<double> *command)
 {
-    for (int i = 0; i < this->params.num_of_dofs; ++i)
+    for (int i = 0; i < this->params.num_of_dofs + this->params.num_of_arm_waist_dofs; ++i)
     {
         this->unitree_low_command.motor_cmd()[i].mode() = 0x01;
         this->unitree_low_command.motor_cmd()[i].q() = command->motor_command.q[command_mapping[i]];
@@ -156,13 +158,11 @@ void RL_Real::RobotControl()
 
     this->GetState(&this->robot_state);
     this->StateController(&this->robot_state, &this->robot_command);
-    // this->SetCommand(&this->robot_command);
+    this->SetCommand(&this->robot_command);
 }
 
 void RL_Real::RunModel()
 {
-    std::cout << "control state: " << this->control.control_state << std::endl;
-    std::cout << "running state: " << this->running_state << std::endl;
     if (this->running_state == STATE_RL_RUNNING)
     {
         this->obs.ang_vel = torch::tensor(this->robot_state.imu.gyroscope).unsqueeze(0);
@@ -170,6 +170,14 @@ void RL_Real::RunModel()
         this->obs.base_quat = torch::tensor(this->robot_state.imu.quaternion).unsqueeze(0);
         this->obs.dof_pos = torch::tensor(this->robot_state.motor_state.q).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
         this->obs.dof_vel = torch::tensor(this->robot_state.motor_state.dq).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
+
+        // std::cout << "----------------------------------------------------" << std::endl;
+        // std::cout << "ang_vel: " << this->obs.ang_vel << std::endl;
+        // std::cout << "commands: " << this->obs.commands << std::endl;
+        // std::cout << "base_quat: " << this->obs.base_quat << std::endl;
+        // std::cout << "dof_pos: " << this->obs.dof_pos << std::endl;
+        // std::cout << "dof_vel: " << this->obs.dof_vel << std::endl;
+        // std::cout << "gravity_vec: " << this->QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec, this->params.framework) << std::endl;
 
         torch::Tensor clamped_actions = this->Forward();
 
@@ -290,20 +298,16 @@ uint32_t RL_Real::Crc32Core(uint32_t *ptr, uint32_t len)
 
 void RL_Real::InitLowCmd()
 {
-    // this->unitree_low_command.head()[0] = 0xFE;
-    // this->unitree_low_command.head()[1] = 0xEF;
-    // this->unitree_low_command.level_flag() = 0xFF;
-    // this->unitree_low_command.gpio() = 0;
-
-    // for (int i = 0; i < 20; ++i)
-    // {
-    //     this->unitree_low_command.motor_cmd()[i].mode() = (0x01); // motor switch to servo (PMSM) mode
-    //     this->unitree_low_command.motor_cmd()[i].q() = (PosStopF);
-    //     this->unitree_low_command.motor_cmd()[i].kp() = (0);
-    //     this->unitree_low_command.motor_cmd()[i].dq() = (VelStopF);
-    //     this->unitree_low_command.motor_cmd()[i].kd() = (0);
-    //     this->unitree_low_command.motor_cmd()[i].tau() = (0);
-    // }
+    this->unitree_low_command.mode_pr() = static_cast<uint8_t>(Mode::PR);
+    for (int i = 0; i < this->params.num_of_dofs + this->params.num_of_arm_waist_dofs; ++i)
+    {
+        this->unitree_low_command.motor_cmd()[i].mode() = (0x01); // motor switch to servo (PMSM) mode
+        this->unitree_low_command.motor_cmd()[i].q() = (0);
+        this->unitree_low_command.motor_cmd()[i].kp() = (0);
+        this->unitree_low_command.motor_cmd()[i].dq() = (0);
+        this->unitree_low_command.motor_cmd()[i].kd() = (0);
+        this->unitree_low_command.motor_cmd()[i].tau() = (0);
+    }
 }
 
 void RL_Real::InitMotionSwitcherClient()
@@ -318,6 +322,11 @@ void RL_Real::LowStateMessageHandler(const void *message)
     memcpy(this->unitree_rx.buff, &this->unitree_low_state.wireless_remote()[0], 40);
     this->unitree_gamepad.update(this->unitree_rx.RF_RX);
     // std::cout << "LowStateMessageHandler" << std::endl;
+
+    if (this->unitree_low_command.mode_machine() != unitree_low_state.mode_machine()) {
+      if (this->unitree_low_command.mode_machine() == 0) std::cout << "G1 type: " << unsigned(unitree_low_state.mode_machine()) << std::endl;
+      this->unitree_low_command.mode_machine() = unitree_low_state.mode_machine();
+    }
 }
 
 void RL_Real::ImuTorsoHandler(const void *message)

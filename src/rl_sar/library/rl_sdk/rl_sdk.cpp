@@ -94,7 +94,6 @@ void RL::InitOutputs()
 
 void RL::InitControl()
 {
-    this->control.control_state = STATE_ZERO_TORQUE;
     // this->control.x = 0.0;
     // this->control.y = 0.0;
     // this->control.yaw = 0.0;
@@ -140,15 +139,20 @@ torch::Tensor RL::QuatRotateInverse(torch::Tensor q, torch::Tensor v, const std:
 
 void RL::StateController(const RobotState<double> *state, RobotCommand<double> *command)
 {
+    // std::cout << "control_state: " << this->control.control_state << std::endl;
+    // std::cout << "running_state: " << this->running_state << std::endl;
+
     static RobotState<double> start_state;
     static RobotState<double> now_state;
-    static float getup_percent = 0.0;
-    static float getdown_percent = 0.0;
+    static bool if_moving_init = true;
+    static float total_moving_time = 4.0;
+    static int num_total_moving_step = int(total_moving_time / this->params.dt);
+    static int count_step = 0;
 
     // zero torque
     if (this->running_state == STATE_ZERO_TORQUE)
     {
-        for (int i = 0; i < this->params.num_of_dofs; ++i)
+        for (int i = 0; i < this->params.num_of_dofs + this->params.num_of_arm_waist_dofs; ++i)
         {
             command->motor_command.q[i] = 0;
             command->motor_command.dq[i] = 0;
@@ -156,29 +160,94 @@ void RL::StateController(const RobotState<double> *state, RobotCommand<double> *
             command->motor_command.kd[i] = 0;
             command->motor_command.tau[i] = 0;
         }
-        // std::cout << std::endl << LOGGER::INFO << "Switching to STATE_ZERO_TORQUE" << std::endl;
+
+        if (this->control.control_state == STATE_MOVING_DEFAULT_POS)
+        {
+            this->running_state = STATE_MOVING_DEFAULT_POS;
+            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_MOVING_DEFAULT_POS" << std::endl;
+        }
+        else if (this->control.control_state == STATE_DAMPING)
+        {
+            this->running_state = STATE_DAMPING;
+            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DAMPING" << std::endl;
+        }
     }
     // move to default pos (position control)
     else if (this->running_state == STATE_MOVING_DEFAULT_POS)
     {
+        if(if_moving_init)
+        {
+            for (int i = 0; i < this->params.num_of_dofs + this->params.num_of_arm_waist_dofs; ++i)
+            {
+                start_state.motor_state.q[i] = state->motor_state.q[i];
+            }
+            if_moving_init = false;
+        }
 
+        count_step++;
+        float alpha = (float)count_step / num_total_moving_step;
+        // std::cout << "alpha: " << alpha << std::endl;
+        // std::cout << "count_step: " << count_step << std::endl;
+        // std::cout << "num_total_moving_step: " << num_total_moving_step << std::endl;
+        for (int i = 0; i < this->params.num_of_dofs; ++i)
+        {
+            command->motor_command.q[i] = alpha * this->params.default_dof_pos[0][i].item<double>() + (1 - alpha) * start_state.motor_state.q[i];
+            command->motor_command.dq[i] = 0;
+            command->motor_command.kp[i] = this->params.rl_kp[0][i].item<double>();
+            command->motor_command.kd[i] = this->params.rl_kd[0][i].item<double>();
+            command->motor_command.tau[i] = 0;
+        }
+        for (int i = 0; i < this->params.num_of_arm_waist_dofs; ++i)
+        {
+            command->motor_command.q[this->params.num_of_dofs + i] = alpha * this->params.arm_waist_target[0][i].item<double>() + (1 - alpha) * start_state.motor_state.q[this->params.num_of_dofs + i];
+            command->motor_command.dq[this->params.num_of_dofs + i] = 0;
+            command->motor_command.kp[this->params.num_of_dofs + i] = this->params.arm_waist_kp[0][i].item<double>();
+            command->motor_command.kd[this->params.num_of_dofs + i] = this->params.arm_waist_kd[0][i].item<double>();
+            command->motor_command.tau[this->params.num_of_dofs + i] = 0;
+        }
+
+        if (count_step >= num_total_moving_step)
+        {
+            count_step = 0;
+            if_moving_init = true;
+            this->running_state = STATE_DEFAULT_POS;
+            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DEFAULT_POS" << std::endl;
+        }
     }
     // default pos (position control)
     else if (this->running_state == STATE_DEFAULT_POS)
-    {
+    {   
         for (int i = 0; i < this->params.num_of_dofs; ++i)
         {
-            command->motor_command.q[i] = this->params.default_dof_pos[i].item<double>();
+            command->motor_command.q[i] = this->params.default_dof_pos[0][i].item<double>();
             command->motor_command.dq[i] = 0;
-            command->motor_command.kp[i] = this->params.rl_kp[i].item<double>();
-            command->motor_command.kd[i] = this->params.rl_kd[i].item<double>();
+            command->motor_command.kp[i] = this->params.rl_kp[0][i].item<double>();
+            command->motor_command.kd[i] = this->params.rl_kd[0][i].item<double>();
             command->motor_command.tau[i] = 0;
         }
-        // std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DEFAULT_POS" << std::endl;
+        for (int i = 0; i < this->params.num_of_arm_waist_dofs; ++i)
+        {
+            command->motor_command.q[this->params.num_of_dofs + i] = this->params.arm_waist_target[0][i].item<double>();
+            command->motor_command.dq[this->params.num_of_dofs + i] = 0;
+            command->motor_command.kp[this->params.num_of_dofs + i] = this->params.arm_waist_kp[0][i].item<double>();
+            command->motor_command.kd[this->params.num_of_dofs + i] = this->params.arm_waist_kd[0][i].item<double>();
+            command->motor_command.tau[this->params.num_of_dofs + i] = 0;
+        }
+
+        if (this->control.control_state == STATE_RL_INIT)
+        {
+            this->running_state = STATE_RL_INIT;
+            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_RL_INIT" << std::endl;
+        }
+        else if (this->control.control_state == STATE_DAMPING)
+        {
+            this->running_state = STATE_DAMPING;
+            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DAMPING" << std::endl;
+        }
     }
     else if (this->running_state == STATE_DAMPING)
     {
-        for (int i = 0; i < this->params.num_of_dofs; ++i)
+        for (int i = 0; i < this->params.num_of_dofs + this->params.num_of_arm_waist_dofs; ++i)
         {
             command->motor_command.q[i] = 0;
             command->motor_command.dq[i] = 0;
@@ -191,14 +260,11 @@ void RL::StateController(const RobotState<double> *state, RobotCommand<double> *
     // init obs and start rl loop
     else if (this->running_state == STATE_RL_INIT)
     {
-        if (getup_percent == 1)
-        {
-            this->InitObservations();
-            this->InitOutputs();
-            this->InitControl();
-            this->running_state = STATE_RL_RUNNING;
-            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_RL_RUNNING" << std::endl;
-        }
+        this->InitObservations();
+        this->InitOutputs();
+        this->InitControl();
+        this->running_state = STATE_RL_RUNNING;
+        std::cout << std::endl << LOGGER::INFO << "Switching to STATE_RL_RUNNING" << std::endl;
     }
     // rl loop
     else if (this->running_state == STATE_RL_RUNNING)
@@ -222,6 +288,20 @@ void RL::StateController(const RobotState<double> *state, RobotCommand<double> *
                 command->motor_command.kd[i] = this->params.rl_kd[0][i].item<double>();
                 command->motor_command.tau[i] = 0;
             }
+        }
+        for (int i = 0; i < this->params.num_of_arm_waist_dofs; ++i)
+        {
+            command->motor_command.q[this->params.num_of_dofs + i] = this->params.arm_waist_target[0][i].item<double>();
+            command->motor_command.dq[this->params.num_of_dofs + i] = 0;
+            command->motor_command.kp[this->params.num_of_dofs + i] = this->params.arm_waist_kp[0][i].item<double>();
+            command->motor_command.kd[this->params.num_of_dofs + i] = this->params.arm_waist_kd[0][i].item<double>();
+            command->motor_command.tau[this->params.num_of_dofs + i] = 0;
+        }
+
+        if (this->control.control_state == STATE_DAMPING)
+        {
+            this->running_state = STATE_DAMPING;
+            std::cout << std::endl << LOGGER::INFO << "Switching to STATE_DAMPING" << std::endl;
         }
     }
 }
@@ -295,6 +375,8 @@ void RL::AttitudeProtect(const std::vector<double> &quaternion, float pitch_thre
     {
         pitch = std::asin(sinp) * rad2deg;
     }
+
+    // std::cout << "Roll: " << roll << " degrees, Pitch: " << pitch << " degrees" << std::endl;
 
     if (std::fabs(roll) > roll_threshold)
     {
@@ -471,6 +553,7 @@ void RL::ReadYaml(std::string robot_name)
     this->params.action_scale_wheel = config["action_scale_wheel"].as<double>();
     this->params.wheel_indices = ReadVectorFromYaml<int>(config["wheel_indices"]);
     this->params.num_of_dofs = config["num_of_dofs"].as<int>();
+    this->params.num_of_arm_waist_dofs = config["num_of_arm_waist_dofs"].as<int>();
     this->params.lin_vel_scale = config["lin_vel_scale"].as<double>();
     this->params.ang_vel_scale = config["ang_vel_scale"].as<double>();
     this->params.dof_pos_scale = config["dof_pos_scale"].as<double>();

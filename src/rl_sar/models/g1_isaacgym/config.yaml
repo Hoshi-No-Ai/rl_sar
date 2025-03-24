@@ -25,17 +25,22 @@ g1_isaacgym:
   default_dof_pos: [-0.1,  0.0,  0.0,  0.3, -0.2, 0.0, 
                     -0.1,  0.0,  0.0,  0.3, -0.2, 0.0]
   arm_waist_kp: [300, 300, 300,
-                  100, 100, 50, 50, 20, 20, 20,
-                  100, 100, 50, 50, 20, 20, 20]
+                 100, 100, 50, 50, 20, 20, 20,
+                 100, 100, 50, 50, 20, 20, 20]
   arm_waist_kd: [3, 3, 3, 
-                  2, 2, 2, 2, 1, 1, 1,
-                  2, 2, 2, 2, 1, 1, 1]
+                 2, 2, 2, 2, 1, 1, 1,
+                 2, 2, 2, 2, 1, 1, 1]
   arm_waist_target: [0, 0, 0,
                      0, 0.25, 0, 1.2, 0, 0, 0,
                      0, -0.25, 0, 1.2, 0, 0, 0]
+  leg_joint2motor_idx: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  arm_waist_joint2motor_idx: [12, 13, 14, 
+                              15, 16, 17, 18, 19, 20, 21, 
+                              22, 23, 24, 25, 26, 27, 28]
   hip_scale_reduction: 1.0
   hip_scale_reduction_indices: []
   num_of_dofs: 12
+  num_of_arm_waist_dofs: 17
   action_scale: 0.25
   action_scale_wheel: 0.0
   wheel_indices: []

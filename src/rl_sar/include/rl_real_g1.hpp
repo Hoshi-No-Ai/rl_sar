@@ -93,8 +93,10 @@ private:
     int motiontime = 0;
     std::vector<double> mapped_joint_positions;
     std::vector<double> mapped_joint_velocities;
-    int command_mapping[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
-    int state_mapping[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+    int command_mapping[29] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                               12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
+    int state_mapping[29] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                             12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28};
 };
 
 #endif // RL_REAL_HPP
