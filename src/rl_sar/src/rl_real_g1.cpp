@@ -179,7 +179,13 @@ void RL_Real::RunModel()
         // std::cout << "dof_vel: " << this->obs.dof_vel << std::endl;
         // std::cout << "gravity_vec: " << this->QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec, this->params.framework) << std::endl;
 
+        // auto start = std::chrono::high_resolution_clock::now();
+
         torch::Tensor clamped_actions = this->Forward();
+
+        // auto end = std::chrono::high_resolution_clock::now();
+        // std::chrono::duration<double> duration = end - start;
+        // std::cout << "Execution time: " << 1000.0f * duration.count() << " ms" << std::endl;
 
         this->obs.actions = clamped_actions;
 
@@ -203,8 +209,8 @@ void RL_Real::RunModel()
             output_dof_tau_queue.push(this->output_dof_tau);
         }
 
-        this->TorqueProtect(this->output_dof_tau);
-        this->AttitudeProtect(this->robot_state.imu.quaternion, 75.0f, 75.0f);
+        // this->TorqueProtect(this->output_dof_tau);
+        // this->AttitudeProtect(this->robot_state.imu.quaternion, 75.0f, 75.0f);
 
 #ifdef CSV_LOGGER
         torch::Tensor tau_est = torch::tensor(this->robot_state.motor_state.tau_est).unsqueeze(0);

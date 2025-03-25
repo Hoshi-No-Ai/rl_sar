@@ -105,7 +105,7 @@ namespace unitree::common
         float l2 = 0.;
         float ly = 0.;
 
-        float smooth = 0.03;
+        float smooth = 0.005;
         float dead_zone = 0.01;
 
         Button R1;
