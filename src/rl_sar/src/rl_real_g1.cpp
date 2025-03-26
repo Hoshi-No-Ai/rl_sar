@@ -8,6 +8,8 @@
 // #define PLOT
 // #define CSV_LOGGER
 
+bool if_gpu = false;
+
 RL_Real::RL_Real()
 {
     // read params from yaml
@@ -53,9 +55,18 @@ RL_Real::RL_Real()
     this->InitControl();
     running_state = STATE_ZERO_TORQUE;
 
+    this->device_type = at::kCPU; // 定义设备类型
+    if (torch::cuda::is_available() && if_gpu)
+    {
+        this->device_type = at::kCUDA;
+        std::cout << "CUDA is available! Running on the GPU!" << std::endl;
+    }
+
     // model
+    std::cout << "if CUDA available: " << torch::cuda::is_available() << std::endl;
     std::string model_path = std::string(CMAKE_CURRENT_SOURCE_DIR) + "/models/" + this->robot_name + "/" + this->params.model_name;
     this->model = torch::jit::load(model_path);
+    this->model.to(this->device_type);
 
     // loop
     // this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
@@ -181,7 +192,7 @@ void RL_Real::RunModel()
 
         // auto start = std::chrono::high_resolution_clock::now();
 
-        torch::Tensor clamped_actions = this->Forward();
+        torch::Tensor clamped_actions = this->Forward().to(at::kCPU);
 
         // auto end = std::chrono::high_resolution_clock::now();
         // std::chrono::duration<double> duration = end - start;
@@ -223,13 +234,14 @@ torch::Tensor RL_Real::Forward()
 {
     torch::autograd::GradMode::set_enabled(false);
 
-    torch::Tensor clamped_obs = this->ComputeObservation();
+    torch::Tensor clamped_obs = this->ComputeObservation().to(this->device_type);
+    // std::cout << "clamped_obs Tensor device: " << clamped_obs.device() << std::endl;
 
     torch::Tensor actions;
     if (!this->params.observations_history.empty())
     {
         this->history_obs_buf.insert(clamped_obs);
-        this->history_obs = this->history_obs_buf.get_obs_vec(this->params.observations_history);
+        this->history_obs = this->history_obs_buf.get_obs_vec(this->params.observations_history).to(this->device_type);
         actions = this->model.forward({this->history_obs}).toTensor();
     }
     else
@@ -239,7 +251,7 @@ torch::Tensor RL_Real::Forward()
 
     if (this->params.clip_actions_upper.numel() != 0 && this->params.clip_actions_lower.numel() != 0)
     {
-        return torch::clamp(actions, this->params.clip_actions_lower, this->params.clip_actions_upper);
+        return torch::clamp(actions, this->params.clip_actions_lower.to(this->device_type), this->params.clip_actions_upper.to(this->device_type));
     }
     else
     {
