@@ -27,10 +27,11 @@ RL_Real::RL_Real()
     // init robot
     this->InitMotionSwitcherClient();
     std::string form, name;
-    while (this->msc.CheckMode(form, name), !name.empty()) {
-      if (this->msc.ReleaseMode())
-        std::cout << "Failed to switch to Release Mode\n";
-      sleep(5);
+    while (this->msc.CheckMode(form, name), !name.empty())
+    {
+        if (this->msc.ReleaseMode())
+            std::cout << "Failed to switch to Release Mode\n";
+        sleep(5);
     }
     this->InitLowCmd();
     // create publisher
@@ -69,7 +70,7 @@ RL_Real::RL_Real()
     this->model.to(this->device_type);
 
     // depth
-    depth_processer = DepthProcesser(0.0,3.0);
+    depth_processer = DepthProcesser(0.0, 3.0);
 
     // loop
     // this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
@@ -85,8 +86,14 @@ RL_Real::RL_Real()
     this->plot_t = std::vector<int>(this->plot_size, 0);
     this->plot_real_joint_pos.resize(this->params.num_of_dofs);
     this->plot_target_joint_pos.resize(this->params.num_of_dofs);
-    for (auto &vector : this->plot_real_joint_pos) { vector = std::vector<double>(this->plot_size, 0); }
-    for (auto &vector : this->plot_target_joint_pos) { vector = std::vector<double>(this->plot_size, 0); }
+    for (auto &vector : this->plot_real_joint_pos)
+    {
+        vector = std::vector<double>(this->plot_size, 0);
+    }
+    for (auto &vector : this->plot_target_joint_pos)
+    {
+        vector = std::vector<double>(this->plot_size, 0);
+    }
     this->loop_plot = std::make_shared<LoopFunc>("loop_plot", 0.002, std::bind(&RL_Real::Plot, this));
     this->loop_plot->start();
 #endif
@@ -351,9 +358,11 @@ void RL_Real::LowStateMessageHandler(const void *message)
     this->unitree_gamepad.update(this->unitree_rx.RF_RX);
     // std::cout << "LowStateMessageHandler" << std::endl;
 
-    if (this->unitree_low_command.mode_machine() != unitree_low_state.mode_machine()) {
-      if (this->unitree_low_command.mode_machine() == 0) std::cout << "G1 type: " << unsigned(unitree_low_state.mode_machine()) << std::endl;
-      this->unitree_low_command.mode_machine() = unitree_low_state.mode_machine();
+    if (this->unitree_low_command.mode_machine() != unitree_low_state.mode_machine())
+    {
+        if (this->unitree_low_command.mode_machine() == 0)
+            std::cout << "G1 type: " << unsigned(unitree_low_state.mode_machine()) << std::endl;
+        this->unitree_low_command.mode_machine() = unitree_low_state.mode_machine();
     }
 }
 
@@ -367,35 +376,6 @@ void signalHandler(int signum)
 {
     exit(0);
 }
-void make_depth_histogram(const Mat &depth, Mat &normalized_depth, int coloringMethod) {
-    normalized_depth = Mat(depth.size(), CV_8U);
-    int width = depth.cols, height = depth.rows;
-  
-    static uint32_t histogram[0x10000];
-    memset(histogram, 0, sizeof(histogram));
-  
-    for(int i = 0; i < height; ++i) {
-      for (int j = 0; j < width; ++j) {
-        ++histogram[depth.at<ushort>(i,j)];
-      }
-    }
-  
-    for(int i = 2; i < 0x10000; ++i) histogram[i] += histogram[i-1]; // Build a cumulative histogram for the indices in [1,0xFFFF]
-  
-    for(int i = 0; i < height; ++i) {
-      for (int j = 0; j < width; ++j) {
-        if (uint16_t d = depth.at<ushort>(i,j)) {
-          int f = histogram[d] * 255 / histogram[0xFFFF]; // 0-255 based on histogram location
-          normalized_depth.at<uchar>(i,j) = static_cast<uchar>(f);
-        } else {
-          normalized_depth.at<uchar>(i,j) = 0;
-        }
-      }
-    }
-  
-    // Apply the colormap:
-    applyColorMap(normalized_depth, normalized_depth, coloringMethod);
-  }
 
 int main(int argc, char **argv)
 {
@@ -411,7 +391,8 @@ int main(int argc, char **argv)
 
     RL_Real rl_sar;
 
-    while (waitKey(1) < 0){
+    while (waitKey(1) < 0)
+    {
         // sleep 0.1s
         usleep(100000);
     }

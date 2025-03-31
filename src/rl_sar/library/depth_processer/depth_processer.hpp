@@ -2,9 +2,9 @@
 #define DEPTH_CLEANER_HPP
 
 // Libraries
-#include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
-#include <opencv2/opencv.hpp>   // Include OpenCV API
-#include <opencv2/rgbd.hpp>     // OpenCV RGBD Contrib package
+#include <librealsense2/rs.hpp>        // Include RealSense Cross Platform API
+#include <opencv2/opencv.hpp>          // Include OpenCV API
+#include <opencv2/rgbd.hpp>            // OpenCV RGBD Contrib package
 #include <opencv2/highgui/highgui_c.h> // OpenCV High-level GUI
 
 // STD
@@ -18,24 +18,26 @@ using namespace cv;
 #define SCALE_FACTOR 1
 
 /*
-* Class for enqueuing and dequeuing cv::Mats efficiently
-* Thanks to this awesome post by PKLab
-* http://pklab.net/index.php?id=394&lang=EN
-*/
+ * Class for enqueuing and dequeuing cv::Mats efficiently
+ * Thanks to this awesome post by PKLab
+ * http://pklab.net/index.php?id=394&lang=EN
+ */
 class QueuedMat
 {
 public:
     Mat img; // Standard cv::Mat
 
-    QueuedMat(){}; // Default constructor
+    QueuedMat() {}; // Default constructor
 
     // Destructor (called by queue::pop)
-    ~QueuedMat(){
+    ~QueuedMat()
+    {
         img.release();
     };
 
     // Copy constructor (called by queue::push)
-    QueuedMat(const QueuedMat& src){
+    QueuedMat(const QueuedMat &src)
+    {
         src.img.copyTo(img);
     };
 };
@@ -43,9 +45,9 @@ public:
 class DepthProcesser
 {
 public:
-    DepthProcesser(){};
+    DepthProcesser() {};
     DepthProcesser(float near_clip_m, float far_clip_m);
-    ~DepthProcesser(){};
+    ~DepthProcesser() {};
 
     void process_depth();
 
@@ -60,8 +62,8 @@ private:
     std::queue<QueuedMat> filteredQueue;
     std::queue<QueuedMat> originalQueue;
 
-    const char* window_name_source = "Source Depth";
-    const char* window_name_filter = "Filtered Depth";
+    const char *window_name_source = "Source Depth";
+    const char *window_name_filter = "Filtered Depth";
 
     rs2::frameset data;
     rs2::frame depth_frame;
