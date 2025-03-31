@@ -68,13 +68,18 @@ RL_Real::RL_Real()
     this->model = torch::jit::load(model_path);
     this->model.to(this->device_type);
 
+    // // depth
+    // depth_cleaner = DepthProcesser(0.3,3.0);
+
     // loop
     // this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.dt, std::bind(&RL_Real::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.dt * this->params.decimation, std::bind(&RL_Real::RunModel, this));
+    // this->loop_depth = std::make_shared<LoopFunc>("loop_depth", this->params.dt * this->params.decimation, std::bind(&RL_Real::ProcessDepth, this));
     // this->loop_keyboard->start();
     this->loop_control->start();
     this->loop_rl->start();
+    // this->loop_depth->start();
 
 #ifdef PLOT
     this->plot_t = std::vector<int>(this->plot_size, 0);
@@ -169,7 +174,12 @@ void RL_Real::RobotControl()
 
     this->GetState(&this->robot_state);
     this->StateController(&this->robot_state, &this->robot_command);
-    this->SetCommand(&this->robot_command);
+    // this->SetCommand(&this->robot_command);
+}
+
+void RL_Real::ProcessDepth()
+{
+    this->depth_cleaner.process_depth();
 }
 
 void RL_Real::RunModel()
@@ -190,13 +200,13 @@ void RL_Real::RunModel()
         // std::cout << "dof_vel: " << this->obs.dof_vel << std::endl;
         // std::cout << "gravity_vec: " << this->QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec, this->params.framework) << std::endl;
 
-        // auto start = std::chrono::high_resolution_clock::now();
+        auto start = std::chrono::high_resolution_clock::now();
 
         torch::Tensor clamped_actions = this->Forward().to(at::kCPU);
 
-        // auto end = std::chrono::high_resolution_clock::now();
-        // std::chrono::duration<double> duration = end - start;
-        // std::cout << "Execution time: " << 1000.0f * duration.count() << " ms" << std::endl;
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> duration = end - start;
+        std::cout << "Execution time: " << 1000.0f * duration.count() << " ms" << std::endl;
 
         this->obs.actions = clamped_actions;
 
@@ -357,6 +367,35 @@ void signalHandler(int signum)
 {
     exit(0);
 }
+void make_depth_histogram(const Mat &depth, Mat &normalized_depth, int coloringMethod) {
+    normalized_depth = Mat(depth.size(), CV_8U);
+    int width = depth.cols, height = depth.rows;
+  
+    static uint32_t histogram[0x10000];
+    memset(histogram, 0, sizeof(histogram));
+  
+    for(int i = 0; i < height; ++i) {
+      for (int j = 0; j < width; ++j) {
+        ++histogram[depth.at<ushort>(i,j)];
+      }
+    }
+  
+    for(int i = 2; i < 0x10000; ++i) histogram[i] += histogram[i-1]; // Build a cumulative histogram for the indices in [1,0xFFFF]
+  
+    for(int i = 0; i < height; ++i) {
+      for (int j = 0; j < width; ++j) {
+        if (uint16_t d = depth.at<ushort>(i,j)) {
+          int f = histogram[d] * 255 / histogram[0xFFFF]; // 0-255 based on histogram location
+          normalized_depth.at<uchar>(i,j) = static_cast<uchar>(f);
+        } else {
+          normalized_depth.at<uchar>(i,j) = 0;
+        }
+      }
+    }
+  
+    // Apply the colormap:
+    applyColorMap(normalized_depth, normalized_depth, coloringMethod);
+  }
 
 int main(int argc, char **argv)
 {
@@ -372,10 +411,164 @@ int main(int argc, char **argv)
 
     RL_Real rl_sar;
 
+     //Create a depth cleaner instance
+     rgbd::DepthCleaner* depthc = new rgbd::DepthCleaner(CV_16U, 7, rgbd::DepthCleaner::DEPTH_CLEANER_NIL);
+
+     // A librealsense class for mapping raw depth into RGB (pretty visuals, yay)
+     rs2::colorizer color_map;
+ 
+     float near_clip = 300.0f; // 0.3m
+     float far_clip = 3000.0f; // 3m
+ 
+     // Declare RealSense pipeline, encapsulating the actual device and sensors
+     rs2::pipeline pipe;
+ 
+     //Create a configuration for configuring the pipeline with a non default profile
+     rs2::config cfg;
+ 
+     //Add desired streams to configuration
+     cfg.enable_stream(RS2_STREAM_DEPTH, 640, 480, RS2_FORMAT_Z16, 30);
+ 
+     // Start streaming with default recommended configuration
+     pipe.start(cfg);
+ 
+     // openCV window
+     const auto window_name_source = "Source Depth";
+     namedWindow(window_name_source, WINDOW_AUTOSIZE);
+ 
+     const auto window_name_filter = "Filtered Depth";
+     namedWindow(window_name_filter, WINDOW_AUTOSIZE);
+ 
+     // Atomic boolean to allow thread safe way to stop the thread
+     std::atomic_bool stopped(false);
+ 
+     // Declaring two concurrent queues that will be used to push and pop frames from different threads
+     std::queue<QueuedMat> filteredQueue;
+     std::queue<QueuedMat> originalQueue;
+ 
+     // The threaded processing thread function
+     std::thread processing_thread([&]() {
+         while (!stopped){
+ 
+             rs2::frameset data = pipe.wait_for_frames(); // Wait for next set of frames from the camera
+             rs2::frame depth_frame = data.get_depth_frame(); //Take the depth frame from the frameset
+             if (!depth_frame) // Should not happen but if the pipeline is configured differently
+                 return;       //  it might not provide depth and we don't want to crash
+ 
+             //Save a reference
+             rs2::frame filtered = depth_frame;
+ 
+             // Query frame size (width and height)
+             const int w = depth_frame.as<rs2::video_frame>().get_width();
+             const int h = depth_frame.as<rs2::video_frame>().get_height();
+ 
+             //Create queued mat containers
+             QueuedMat depthQueueMat;
+             QueuedMat cleanDepthQueueMat;
+ 
+             // Create an openCV matrix from the raw depth (CV_16U holds a matrix of 16bit unsigned ints)
+             Mat rawDepthMat(Size(w, h), CV_16U, (void*)depth_frame.get_data());
+ 
+             // std::cout << rawDepthMat.at<uint16_t>(w/2, h/2) << std::endl;
+ 
+             // Create an openCV matrix for the DepthCleaner instance to write the output to
+             Mat cleanedDepth(Size(w, h), CV_16U);
+ 
+             //Run the RGBD depth cleaner instance
+             depthc->operator()(rawDepthMat, cleanedDepth);
+ 
+             const unsigned char noDepth = 0; // change to 255, if values no depth uses max value
+             Mat temp, temp2;
+ 
+             // Downsize for performance, use a smaller version of depth image (defined in the SCALE_FACTOR macro)
+             Mat small_depthf;
+             resize(cleanedDepth, small_depthf, Size(), SCALE_FACTOR, SCALE_FACTOR);
+ 
+             // Inpaint only the masked "unknown" pixels
+             inpaint(small_depthf, (small_depthf == noDepth), temp, 5.0, INPAINT_TELEA);
+ 
+             // Upscale to original size and replace inpainted regions in original depth image
+             resize(temp, temp2, cleanedDepth.size());
+             temp2.copyTo(cleanedDepth, (cleanedDepth == noDepth));  // add to the original signal
+ 
+             // threshold
+             Mat temp_thresholded, temp2_thresholded;
+             threshold(cleanedDepth, temp_thresholded, far_clip, far_clip, THRESH_TRUNC);
+             threshold(temp_thresholded, temp2_thresholded, near_clip, near_clip, THRESH_TOZERO);
+ 
+             cleanedDepth = temp2_thresholded.clone();
+ 
+             // normalize
+             Mat cleanedDepth_float;
+             cleanedDepth.convertTo(cleanedDepth_float, CV_32F);
+ 
+             Mat normalized_depth = (cleanedDepth_float - near_clip) / (far_clip - near_clip);
+ 
+             cv::Mat vis_image;
+             normalized_depth.convertTo(vis_image, CV_8U, 255.0);
+ 
+             // Use the copy constructor to copy the cleaned mat if the isDepthCleaning is true
+             cleanDepthQueueMat.img = cleanedDepth;
+ 
+             //Use the copy constructor to fill the original depth coming in from the sensr(i.e visualized in RGB 8bit ints)
+             depthQueueMat.img = rawDepthMat;
+ 
+             //Push the mats to the queue
+             originalQueue.push(depthQueueMat);
+             filteredQueue.push(cleanDepthQueueMat);
+ 
+             imshow(window_name_filter, vis_image);
+             // imshow(window_name_filter, cleanedDepth);
+             imshow(window_name_source, rawDepthMat);
+         }
+     });
+ 
+     Mat filteredDequeuedMat(Size(1280, 720), CV_16UC1);
+     Mat originalDequeuedMat(Size(1280, 720), CV_8UC3);
+ 
+     //Main thread function
+     while (waitKey(1) < 0 && cvGetWindowHandle(window_name_source) && cvGetWindowHandle(window_name_filter)){
+ 
+         //If the frame queue is not empty pull a frame out and clean the queue
+         while(!originalQueue.empty()){
+             originalQueue.front().img.copyTo(originalDequeuedMat);
+             originalQueue.pop();
+         }
+ 
+ 
+         while(!filteredQueue.empty()){
+             filteredQueue.front().img.copyTo(filteredDequeuedMat);
+             filteredQueue.pop();
+         }
+ 
+         Mat coloredCleanedDepth;
+         Mat coloredOriginalDepth;
+ 
+         make_depth_histogram(filteredDequeuedMat, coloredCleanedDepth, COLORMAP_JET);
+         make_depth_histogram(originalDequeuedMat, coloredOriginalDepth, COLORMAP_JET);
+ 
+         // imshow(window_name_filter, coloredCleanedDepth);
+         // imshow(window_name_source, coloredOriginalDepth);
+         // imshow(window_name_filter, filteredDequeuedMat);
+         // imshow(window_name_source, originalDequeuedMat);
+     }
+ 
+     // Signal the processing thread to stop, and join
+     stopped = true;
+     processing_thread.join();
+
     while (1)
     {
         sleep(10);
     }
+
+    // const char* window_name_source = "Source Depth";
+    // const char* window_name_filter = "Filtered Depth";
+
+    // while (waitKey(1) < 0 && cvGetWindowHandle(window_name_source))
+    // {
+        
+    // }
 
     return 0;
 }

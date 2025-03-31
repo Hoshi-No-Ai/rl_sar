@@ -10,6 +10,7 @@
 #include "observation_buffer.hpp"
 #include "loop.hpp"
 #include "gamepad.hpp"
+#include "depth_cleaner.hpp"
 // DDS
 #include <unitree/robot/channel/channel_publisher.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
@@ -56,16 +57,21 @@ private:
     void SetCommand(const RobotCommand<double> *command) override;
     void RunModel();
     void RobotControl();
+    void ProcessDepth();
 
     // history buffer
     ObservationBuffer history_obs_buf;
     torch::Tensor history_obs;
+
+    // depth
+    DepthProcesser depth_cleaner;
 
     // loop
     std::shared_ptr<LoopFunc> loop_keyboard;
     std::shared_ptr<LoopFunc> loop_control;
     std::shared_ptr<LoopFunc> loop_rl;
     std::shared_ptr<LoopFunc> loop_plot;
+    std::shared_ptr<LoopFunc> loop_depth;
 
     // plot
     const int plot_size = 100;

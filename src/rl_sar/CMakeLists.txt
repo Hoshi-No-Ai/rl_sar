@@ -37,10 +37,14 @@ catkin_package(
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 find_package(Torch REQUIRED)
 
+find_package(OpenCV REQUIRED)
+find_package(realsense2 REQUIRED)
+
 link_directories(/usr/local/lib)
 include_directories(/usr/local/include)
 include_directories(/usr/local/include/ddscxx)
 include_directories(${YAML_CPP_INCLUDE_DIR})
+include_directories(${realsense2_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 
 # Unitree G1
 set(UNITREE_G1_LIBS -pthread unitree_sdk2 ddsc ddscxx)
@@ -52,6 +56,7 @@ include_directories(
   library/observation_buffer
   library/rl_sdk
   library/loop
+  library/depth_cleaner
 )
 
 add_library(rl_sdk library/rl_sdk/rl_sdk.cpp)
@@ -68,8 +73,11 @@ add_library(observation_buffer library/observation_buffer/observation_buffer.cpp
 target_link_libraries(observation_buffer "${TORCH_LIBRARIES}")
 set_property(TARGET observation_buffer PROPERTY CXX_STANDARD 14)
 
+add_library(depth_cleaner library/depth_cleaner/depth_cleaner.cpp)
+target_link_libraries(depth_cleaner realsense2::realsense2 ${OpenCV_LIBS} -lpthread -lm)
+
 add_executable(rl_real_g1 src/rl_real_g1.cpp )
 target_link_libraries(rl_real_g1
   ${catkin_LIBRARIES} ${UNITREE_G1_LIBS}
-  rl_sdk observation_buffer yaml-cpp
+  rl_sdk observation_buffer yaml-cpp depth_cleaner
 )
