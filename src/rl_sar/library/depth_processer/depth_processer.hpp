@@ -49,14 +49,22 @@ public:
     DepthProcesser(float near_clip_m, float far_clip_m);
     ~DepthProcesser() {};
 
+    // queued mat containers
+    QueuedMat depthQueueMat;
+    QueuedMat cleanDepthQueueMat;
+
     void process_depth();
 
     void make_depth_histogram(const Mat &depth, Mat &normalized_depth, int coloringMethod);
 
 private:
-    rgbd::DepthCleaner depthc;
     float near_clip;
     float far_clip;
+    int crop_left_right = 4;
+    int resized_width = 64;
+    int resized_height = 48;
+
+    rgbd::DepthCleaner depthc;
     rs2::pipeline pipe;
     rs2::config cfg;
     std::queue<QueuedMat> filteredQueue;

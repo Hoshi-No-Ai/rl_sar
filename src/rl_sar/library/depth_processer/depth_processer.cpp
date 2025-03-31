@@ -71,10 +71,6 @@ void DepthProcesser::process_depth()
   const int w = depth_frame.as<rs2::video_frame>().get_width();
   const int h = depth_frame.as<rs2::video_frame>().get_height();
 
-  // Create queued mat containers
-  QueuedMat depthQueueMat;
-  QueuedMat cleanDepthQueueMat;
-
   // Create an openCV matrix from the raw depth (CV_16U holds a matrix of 16bit unsigned ints)
   Mat rawDepthMat(Size(w, h), CV_16U, (void *)depth_frame.get_data());
   // std::cout << "rawDepthMat at (" << w/2 << ", " << h/2 << "): "
@@ -114,10 +110,10 @@ void DepthProcesser::process_depth()
 
   // resize
   Mat resized_image;
-  resize(vis_image, resized_image, Size(72, 48));
+  resize(vis_image, resized_image, Size(resized_width + 2 * crop_left_right, resized_height));
 
   // crop
-  Rect roi(4, 0, 64, 48);
+  Rect roi(crop_left_right, 0, resized_width, resized_height);
   Mat cropped_image = resized_image(roi).clone();
 
   // Use the copy constructor to copy the cleaned mat if the isDepthCleaning is true
@@ -126,12 +122,15 @@ void DepthProcesser::process_depth()
   // Use the copy constructor to fill the original depth coming in from the sensr(i.e visualized in RGB 8bit ints)
   depthQueueMat.img = rawDepthMat;
 
-  // Push the mats to the queue
-  originalQueue.push(depthQueueMat);
-  filteredQueue.push(cleanDepthQueueMat);
+  // // Push the mats to the queue
+  // // TODO: limit queue size
+  // originalQueue.push(depthQueueMat);
+  // filteredQueue.push(cleanDepthQueueMat);
+  // std::cout << "originalQueue size: " << originalQueue.size() << std::endl;
+  // std::cout << "filteredQueue size: " << filteredQueue.size() << std::endl;
 
-  imshow(window_name_filter, cropped_image);
-  imshow(window_name_source, vis_image);
+  // imshow(window_name_filter, cropped_image);
+  // imshow(window_name_source, vis_image);
 }
 
 // int main(int argc, char * argv[]) try {
