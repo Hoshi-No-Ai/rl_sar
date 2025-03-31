@@ -45,16 +45,14 @@ class DepthProcesser
 public:
     DepthProcesser(){};
     DepthProcesser(float near_clip_m, float far_clip_m);
-    ~DepthProcesser(){
-        delete depthc;
-    };
+    ~DepthProcesser(){};
 
     void process_depth();
 
     void make_depth_histogram(const Mat &depth, Mat &normalized_depth, int coloringMethod);
 
 private:
-    rgbd::DepthCleaner* depthc;
+    rgbd::DepthCleaner depthc;
     float near_clip;
     float far_clip;
     rs2::pipeline pipe;

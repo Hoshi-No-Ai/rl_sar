@@ -10,7 +10,7 @@
 #include "observation_buffer.hpp"
 #include "loop.hpp"
 #include "gamepad.hpp"
-#include "depth_cleaner.hpp"
+#include "depth_processer.hpp"
 // DDS
 #include <unitree/robot/channel/channel_publisher.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
@@ -64,7 +64,7 @@ private:
     torch::Tensor history_obs;
 
     // depth
-    DepthProcesser depth_cleaner;
+    DepthProcesser depth_processer;
 
     // loop
     std::shared_ptr<LoopFunc> loop_keyboard;
