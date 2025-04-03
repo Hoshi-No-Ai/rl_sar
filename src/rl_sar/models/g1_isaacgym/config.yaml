@@ -11,6 +11,8 @@ g1_isaacgym:
   num_observations: 45
   observations: ["commands", "ang_vel", "gravity_vec", "dof_pos", "dof_vel", "actions"]
   observations_history: [9, 8, 7 ,6 ,5, 4, 3, 2, 1, 0]
+  depth_height: 48
+  depth_width: 64
   clip_obs: 100.0
   clip_actions_lower: [-100, -100, -100, -100, -100, -100,
                        -100, -100, -100, -100, -100, -100]

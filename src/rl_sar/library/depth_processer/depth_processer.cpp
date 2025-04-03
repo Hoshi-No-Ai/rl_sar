@@ -56,8 +56,8 @@ DepthProcesser::DepthProcesser(float near_clip_m, float far_clip_m)
   pipe.start(cfg);
 
   // openCV window
-  namedWindow(window_name_source, WINDOW_AUTOSIZE);
-  namedWindow(window_name_filter, WINDOW_AUTOSIZE);
+  // namedWindow(window_name_source, WINDOW_AUTOSIZE);
+  // namedWindow(window_name_filter, WINDOW_AUTOSIZE);
 }
 
 void DepthProcesser::process_depth()
@@ -99,25 +99,25 @@ void DepthProcesser::process_depth()
 
   cleanedDepth = temp2_thresholded.clone();
 
-  // normalize
-  Mat cleanedDepth_float;
-  cleanedDepth.convertTo(cleanedDepth_float, CV_32F);
-
-  Mat normalized_depth = (cleanedDepth_float - near_clip) / (far_clip - near_clip);
-
-  Mat vis_image;
-  normalized_depth.convertTo(vis_image, CV_8U, 255.0);
-
   // resize
   Mat resized_image;
-  resize(vis_image, resized_image, Size(resized_width + 2 * crop_left_right, resized_height));
+  resize(cleanedDepth, resized_image, Size(resized_width + 2 * crop_left_right, resized_height));
 
   // crop
   Rect roi(crop_left_right, 0, resized_width, resized_height);
   Mat cropped_image = resized_image(roi).clone();
 
+  // normalize
+  Mat cleanedDepth_float;
+  cropped_image.convertTo(cleanedDepth_float, CV_32F);
+
+  Mat normalized_depth = (cleanedDepth_float - near_clip) / (far_clip - near_clip) - 0.5f;
+
+  // Mat vis_image;
+  // normalized_depth.convertTo(vis_image, CV_8U, 255.0);
+
   // Use the copy constructor to copy the cleaned mat if the isDepthCleaning is true
-  cleanDepthQueueMat.img = cropped_image;
+  cleanDepthQueueMat.img = normalized_depth;
 
   // Use the copy constructor to fill the original depth coming in from the sensr(i.e visualized in RGB 8bit ints)
   depthQueueMat.img = rawDepthMat;
@@ -129,6 +129,6 @@ void DepthProcesser::process_depth()
   // std::cout << "originalQueue size: " << originalQueue.size() << std::endl;
   // std::cout << "filteredQueue size: " << filteredQueue.size() << std::endl;
 
-  // imshow(window_name_filter, cropped_image);
-  // imshow(window_name_source, vis_image);
+  // imshow(window_name_filter, normalized_depth);
+  // imshow(window_name_source, rawDepthMat);
 }

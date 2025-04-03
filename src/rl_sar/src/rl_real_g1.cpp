@@ -76,7 +76,7 @@ RL_Real::RL_Real()
     // this->loop_keyboard = std::make_shared<LoopFunc>("loop_keyboard", 0.05, std::bind(&RL_Real::KeyboardInterface, this));
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.dt, std::bind(&RL_Real::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.dt * this->params.decimation, std::bind(&RL_Real::RunModel, this));
-    this->loop_depth = std::make_shared<LoopFunc>("loop_depth", this->params.dt * this->params.decimation, std::bind(&RL_Real::ProcessDepth, this));
+    this->loop_depth = std::make_shared<LoopFunc>("loop_depth", 0.05, std::bind(&RL_Real::ProcessDepth, this));
     // this->loop_keyboard->start();
     this->loop_control->start();
     this->loop_rl->start();
@@ -198,6 +198,8 @@ void RL_Real::RunModel()
         this->obs.base_quat = torch::tensor(this->robot_state.imu.quaternion).unsqueeze(0);
         this->obs.dof_pos = torch::tensor(this->robot_state.motor_state.q).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
         this->obs.dof_vel = torch::tensor(this->robot_state.motor_state.dq).narrow(0, 0, this->params.num_of_dofs).unsqueeze(0);
+        // this->obs.depth = torch::from_blob(depth_processer.cleanDepthQueueMat.img.data, 
+        //     {1, 1, this->depth_processer.cleanDepthQueueMat.img.rows, this->depth_processer.cleanDepthQueueMat.img.cols}, torch::kFloat32);
 
         // std::cout << "----------------------------------------------------" << std::endl;
         // std::cout << "ang_vel: " << this->obs.ang_vel << std::endl;
@@ -206,6 +208,8 @@ void RL_Real::RunModel()
         // std::cout << "dof_pos: " << this->obs.dof_pos << std::endl;
         // std::cout << "dof_vel: " << this->obs.dof_vel << std::endl;
         // std::cout << "gravity_vec: " << this->QuatRotateInverse(this->obs.base_quat, this->obs.gravity_vec, this->params.framework) << std::endl;
+        // std::cout << "depth rows: " << this->depth_processer.cleanDepthQueueMat.img.rows << std::endl;
+        // std::cout << "depth cols: " << this->depth_processer.cleanDepthQueueMat.img.cols << std::endl;
 
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -254,12 +258,19 @@ torch::Tensor RL_Real::Forward()
     torch::Tensor clamped_obs = this->ComputeObservation().to(this->device_type);
     // std::cout << "clamped_obs Tensor device: " << clamped_obs.device() << std::endl;
 
+    this->depth_obs = torch::from_blob(depth_processer.cleanDepthQueueMat.img.data, 
+        {1, this->depth_processer.cleanDepthQueueMat.img.rows * this->depth_processer.cleanDepthQueueMat.img.cols}, torch::kFloat32).to(this->device_type);
+    // std::cout << "depth_obs Tensor size: " << this->depth_obs.sizes() << std::endl;
+    
+
     torch::Tensor actions;
     if (!this->params.observations_history.empty())
     {
         this->history_obs_buf.insert(clamped_obs);
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.observations_history).to(this->device_type);
-        actions = this->model.forward({this->history_obs}).toTensor();
+        torch::Tensor obs_depth = torch::cat({this->history_obs, this->depth_obs}, -1);
+        // std::cout << "obs_depth Tensor size: " << obs_depth.sizes() << std::endl;
+        actions = this->model.forward({obs_depth}).toTensor();
     }
     else
     {

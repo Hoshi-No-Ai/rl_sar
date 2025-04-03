@@ -63,6 +63,8 @@ private:
     ObservationBuffer history_obs_buf;
     torch::Tensor history_obs;
 
+    torch::Tensor depth_obs;
+
     // depth
     DepthProcesser depth_processer;
 
